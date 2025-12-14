@@ -13,7 +13,7 @@
  * Provides audio capture from the Zylia ZM-1 19-channel microphone array
  * and supports real-time audio processing for sound source localization.
  */
-class SoundSourceLocalization
+class AudioCapture
 {
 public:
     // Audio callback function type: receives interleaved audio data, frame count, and channel count
@@ -27,16 +27,16 @@ public:
     /**
      * @brief Constructor: reserves buffer
      */
-    explicit SoundSourceLocalization(const MicrophoneConfig& config);
+    explicit AudioCapture(const MicrophoneConfig& config);
 
     /**
      * @brief Destructor: free resources, cleanup alsa handles
      */
-    ~SoundSourceLocalization();
+    ~AudioCapture();
 
     // As ALSA handles are not copyable, disable copy constructor and assignment operator
-    SoundSourceLocalization(const SoundSourceLocalization&) = delete;
-    SoundSourceLocalization& operator=(const SoundSourceLocalization&) = delete;
+    AudioCapture(const AudioCapture&) = delete;
+    AudioCapture& operator=(const AudioCapture&) = delete;
 
     /**
      * @brief Initialize and open the microphone

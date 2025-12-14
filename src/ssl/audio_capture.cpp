@@ -1,9 +1,9 @@
-#include "sound_source_localization.h"
+#include "audio_capture.h"
 #include <cmath>
 #include <cstring>
 #include <iostream>
 
-SoundSourceLocalization::SoundSourceLocalization(const MicrophoneConfig& config)
+AudioCapture::AudioCapture(const MicrophoneConfig& config)
     : config_(config)
     , pcm_handle_(nullptr)
     , hw_params_(nullptr)
@@ -14,7 +14,7 @@ SoundSourceLocalization::SoundSourceLocalization(const MicrophoneConfig& config)
     buffer_ = new int32_t[config_.period_size * config_.channels]; // Buffer of the application
 }
 
-SoundSourceLocalization::~SoundSourceLocalization()
+AudioCapture::~AudioCapture()
 {
     stop();
 
@@ -34,7 +34,7 @@ SoundSourceLocalization::~SoundSourceLocalization()
     buffer_ = nullptr;
 }
 
-bool SoundSourceLocalization::initialize()
+bool AudioCapture::initialize()
 {
     if (is_initialized_)
     {
@@ -62,7 +62,7 @@ bool SoundSourceLocalization::initialize()
     return true;
 }
 
-bool SoundSourceLocalization::start()
+bool AudioCapture::start()
 {
     if (!is_initialized_)
     {
@@ -96,7 +96,7 @@ bool SoundSourceLocalization::start()
     return true;
 }
 
-void SoundSourceLocalization::stop()
+void AudioCapture::stop()
 {
     std::cout << "Stopping audio capture ..." << std::endl;
 
@@ -119,7 +119,7 @@ void SoundSourceLocalization::stop()
     }
 }
 
-snd_pcm_sframes_t SoundSourceLocalization::read_audio(int32_t* buffer)
+snd_pcm_sframes_t AudioCapture::read_audio(int32_t* buffer)
 {
     if (!is_initialized_)
     {
@@ -158,7 +158,7 @@ snd_pcm_sframes_t SoundSourceLocalization::read_audio(int32_t* buffer)
     return frames;
 }
 
-void SoundSourceLocalization::process_audio(AudioCallback callback, int num_iterations)
+void AudioCapture::process_audio(AudioCallback callback, int num_iterations)
 {
     if (!is_running_)
     {
@@ -190,7 +190,7 @@ void SoundSourceLocalization::process_audio(AudioCallback callback, int num_iter
  *       PRIVATE METHODS      *
  ******************************/
 
-bool SoundSourceLocalization::configure_hardware()
+bool AudioCapture::configure_hardware()
 {
     int err;
 

@@ -1,4 +1,4 @@
-#include "../../src/ssl/sound_source_localization.h"
+#include "../../src/ssl/audio_capture.h"
 #include "../../src/ssl/utils.h"
 #include <iomanip>
 #include <iostream>
@@ -6,7 +6,7 @@
 /**
  * @brief Example: Monitor peak volume levels
  *
- * This example demonstrates basic usage of the SoundSourceLocalization class:
+ * This example demonstrates basic usage of the AudioCapture class:
  * - Initialize the audio device
  * - Start capture
  * - Process audio with a callback function
@@ -49,7 +49,7 @@ int main()
               << std::endl;
 
     // Create SSL object
-    SoundSourceLocalization ssl(MIC_CFG_NEEWER_NW_7000);
+    AudioCapture ssl(MIC_CFG_NEEWER_NW_7000);
 
     // Initialize the audio device
     if (!ssl.initialize())
