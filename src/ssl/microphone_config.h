@@ -26,5 +26,8 @@ struct MicrophoneConfig
 };
 
 // TODO: If overruns occur, increase the period size
+// plughw: conversions of format possible
+// dsnoop: no conversion, multiple apps can use the device simultaneously
 const MicrophoneConfig MIC_CFG_ZYLIA_ZM_1("plughw:2,0", 19, 48000, 1024, SND_PCM_FORMAT_S24_LE);
+// const MicrophoneConfig MIC_CFG_NEEWER_NW_7000("dsnoop:CARD=Device,DEV=0", 1, 44100, 1024, SND_PCM_FORMAT_S16_LE);
 const MicrophoneConfig MIC_CFG_NEEWER_NW_7000("plughw:3,0", 1, 48000, 1024, SND_PCM_FORMAT_S16_LE);
