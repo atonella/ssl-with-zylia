@@ -1,28 +1,106 @@
+#pragma once
 
-#include "alsa/asoundlib.h"
+#include "microphone_config.h"
 
+#include <alsa/asoundlib.h>
+#include <functional>
+#include <string>
+#include <vector>
 
-class SoundSourceLocalization {
-private:
-    // hw: no conversion, less configurable
-    // plughw: software conversion, more configurable, automatic resampling
-    const char *device_in_use = "plughw:2,0";
-    const int mic_channels = 1;
-    // Zylia uses 24 bit, Linux is LE (echo -n I | od -to2 | head -n1 | cut -f2 -d"
-    // " | cut -c6 # 1 LE, 0 BE), signed is standard
-    const snd_pcm_format_t mic_format = SND_PCM_FORMAT_FLOAT_LE;
-    int dir = 0; // rounding direction of sample rate: -1 = accurate or first
-    // bellow, 0 = accurate, 1 = accurate or first above
-    unsigned int mic_sample_rate = 48000;
-    snd_pcm_uframes_t mic_period_size = 1024; // in frames
-    // latency = period_size / (sample_rate) * 1000 ms; with values from
-    // above:: 21.33 ms
-    snd_pcm_uframes_t mic_buffer_size = mic_period_size * 4;
-    // Save a period to the buffer
-    float *buffer;
+/**
+ * @brief Sound Source Localization class for Zylia ZM-1 microphone array
+ *
+ * Provides audio capture from the Zylia ZM-1 19-channel microphone array
+ * and supports real-time audio processing for sound source localization.
+ */
+class SoundSourceLocalization
+{
 public:
-    SoundSourceLocalization();
+    // Audio callback function type: receives interleaved audio data, frame count, and channel count
+    using AudioCallback = std::function<void(const int32_t* data, size_t frames, int channels)>;
+    // TODO: eval if needed or make it simpler
+    // EXPLANATION: AudioCallback is a type alias for a function that processes audio.
+    // WHAT: A std::function that takes 3 parameters: pointer to audio samples, number of frames, number of channels
+    // WHY: Allows users to pass lambda/functions to process_audio() for flexible processing (peak detection,
+    //      beamforming, DOA estimation, etc.) without hardcoding the algorithm in the class.
+
+    /**
+     * @brief Constructor: reserves buffer
+     */
+    explicit SoundSourceLocalization(const MicrophoneConfig& config);
+
+    /**
+     * @brief Destructor: free resources, cleanup alsa handles
+     */
     ~SoundSourceLocalization();
-    int init_mic(snd_pcm_t *pcm_handle, snd_pcm_hw_params_t *&hw_params);
-    int print_peak_volume();
+
+    // As ALSA handles are not copyable, disable copy constructor and assignment operator
+    SoundSourceLocalization(const SoundSourceLocalization&) = delete;
+    SoundSourceLocalization& operator=(const SoundSourceLocalization&) = delete;
+
+    /**
+     * @brief Initialize and open the microphone
+     * @return true on success, false on failure
+     */
+    bool initialize();
+
+    /**
+     * @brief Start audio capture
+     * @return true on success, false on failure
+     */
+    bool start();
+
+    /**
+     * @brief Stop audio capture
+     */
+    void stop();
+
+    /**
+     * @brief Read one period of audio data
+     * @param buffer Application input buffer (must be pre-allocated with size = period_size * channels
+     * @return Number of frames read, or negative error code
+     */
+    snd_pcm_sframes_t read_audio(int32_t* buffer);
+
+    /**
+     * @brief Process audio in a loop with a callback function
+     * @param callback Function to process each audio period
+     * @param num_iterations Number of periods to capture (0 = infinite)
+     */
+    void process_audio(AudioCallback callback, int num_iterations = 0);
+    // TTODO: das ist echt krass mit dem lambda. aber maybe overkill and simplier is better
+    // EXPLANATION: WHAT = High-level convenience method that repeatedly reads audio and calls your callback.
+    // WHY = Instead of writing the read loop yourself, pass a callback (lambda/function) and this handles
+    //       the loop. num_iterations=0 means infinite loop (until stop() called), useful for real-time apps.
+    // EXAMPLE: ssl.process_audio([](const int32_t* data, size_t frames, int channels) {
+    //              // Your processing code here (peak detection, beamforming, etc.)
+    //          }, 100); // Process 100 periods then return
+
+    /************************
+     *       GETTERS        *
+     ************************/
+
+    /**
+     * @brief Get current configuration
+     */
+    const MicrophoneConfig& get_config() const { return config_; }
+
+    /**
+     * @brief Check if currently capturing audio
+     */
+    bool is_running() const { return is_running_; }
+
+private:
+    /**
+     * @brief Configure the microphone hardware parameters for ALSA
+     * @return true on success, false on failure
+     */
+    bool configure_hardware();
+
+    MicrophoneConfig config_;
+    snd_pcm_t* pcm_handle_;
+    snd_pcm_hw_params_t* hw_params_;
+    int32_t* buffer_;
+    bool is_running_;
+    bool is_initialized_;
 };

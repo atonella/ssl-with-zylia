@@ -1,140 +1,283 @@
 #include "sound_source_localization.h"
-#include "../../../Spatial_Audio_Framework/framework/include/saf.h"
+#include <cmath>
+#include <cstring>
 #include <iostream>
-#include <cmath> // Add this at the top for std::abs
 
-
-SoundSourceLocalization::SoundSourceLocalization()
+SoundSourceLocalization::SoundSourceLocalization(const MicrophoneConfig& config)
+    : config_(config)
+    , pcm_handle_(nullptr)
+    , hw_params_(nullptr)
+    , buffer_(nullptr)
+    , is_running_(false)
+    , is_initialized_(false)
 {
-    // Allocate buffer for audio data
-    buffer = new float[mic_period_size * mic_channels];
+    buffer_ = new int32_t[config_.period_size * config_.channels]; // Buffer of the application
 }
 
 SoundSourceLocalization::~SoundSourceLocalization()
 {
-    delete[] buffer;
+    stop();
+
+    if (hw_params_)
+    {
+        snd_pcm_hw_params_free(hw_params_);
+        hw_params_ = nullptr;
+    }
+
+    if (pcm_handle_)
+    {
+        snd_pcm_close(pcm_handle_);
+        pcm_handle_ = nullptr;
+    }
+
+    delete[] buffer_;
+    buffer_ = nullptr;
 }
 
+bool SoundSourceLocalization::initialize()
+{
+    if (is_initialized_)
+    {
+        std::cerr << "Already initialized" << std::endl;
+        return false;
+    }
 
-int SoundSourceLocalization::init_mic(snd_pcm_t *pcm_handle, snd_pcm_hw_params_t *&hw_params)
+    // Open PCM device for capture
+    int err = snd_pcm_open(&pcm_handle_, config_.device.c_str(), SND_PCM_STREAM_CAPTURE, 0);
+    if (err < 0)
+    {
+        std::cerr << "Failed to open PCM device: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    // Configure hardware parameters
+    if (!configure_hardware())
+    {
+        snd_pcm_close(pcm_handle_);
+        pcm_handle_ = nullptr;
+        return false;
+    }
+
+    is_initialized_ = true;
+    return true;
+}
+
+bool SoundSourceLocalization::start()
+{
+    if (!is_initialized_)
+    {
+        std::cerr << "Not initialized. Call initialize() first." << std::endl;
+        return false;
+    }
+
+    if (is_running_)
+    {
+        std::cerr << "Already running" << std::endl;
+        return false;
+    }
+
+    // Prepares the PCM for IO after config
+    int err = snd_pcm_prepare(pcm_handle_);
+    if (err < 0)
+    {
+        std::cerr << "Cannot prepare microphone: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    // Explicitly starts the PCM stream
+    err = snd_pcm_start(pcm_handle_);
+    if (err < 0)
+    {
+        std::cerr << "Cannot start audio stream: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    is_running_ = true;
+    return true;
+}
+
+void SoundSourceLocalization::stop()
+{
+    std::cout << "Stopping audio capture ..." << std::endl;
+
+    if (!is_running_)
+    {
+        return;
+    }
+
+    if (pcm_handle_)
+    {
+        int err = snd_pcm_drop(pcm_handle_);
+        if (err < 0)
+        {
+            std::cerr << "Error stopping audio capture: " << snd_strerror(err) << std::endl;
+        }
+        else
+        {
+            is_running_ = false;
+        }
+    }
+}
+
+snd_pcm_sframes_t SoundSourceLocalization::read_audio(int32_t* buffer)
+{
+    if (!is_initialized_)
+    {
+        std::cerr << "Not initialized. Call initialize() first." << std::endl;
+        return -1;
+    }
+
+    if (!is_running_)
+    {
+        std::cerr << "Not running. Call start() first." << std::endl;
+        return -1;
+    }
+
+    // std::cout << "Capturing audio ..." << std::endl;
+
+    snd_pcm_sframes_t frames = snd_pcm_readi(pcm_handle_, buffer, config_.period_size);
+
+    if (frames == -EPIPE)
+    {
+        // Overrun occurred (buffer full)
+        std::cerr << "WARNING: Buffer overrun occurred" << std::endl;
+        snd_pcm_prepare(pcm_handle_); // Prepare PCM after overrun
+        return frames;
+    }
+    else if (frames < 0)
+    {
+        std::cerr << "ERROR: " << snd_strerror(frames) << std::endl;
+        return frames;
+    }
+    // else if (frames != static_cast<snd_pcm_sframes_t>(config_.period_size))
+    // {
+    //     std::cerr << "WARNING: Expected " << config_.period_size
+    //               << " frames, but got " << frames << " frames)" << std::endl;
+    // }
+
+    return frames;
+}
+
+void SoundSourceLocalization::process_audio(AudioCallback callback, int num_iterations)
+{
+    if (!is_running_)
+    {
+        std::cerr << "Error: Not running. Call start() first." << std::endl;
+        return;
+    }
+
+    int iteration = 0;
+    while (num_iterations == 0 || iteration < num_iterations)
+    {
+        snd_pcm_sframes_t frames = read_audio(buffer_);
+
+        if (frames > 0)
+        {
+            callback(buffer_, frames, config_.channels);
+        }
+        else if (frames != -EPIPE)
+        {
+            // Error other than overrun
+            break;
+        }
+        // Continue on overrun (EPIPE)
+
+        iteration++;
+    }
+}
+
+/******************************
+ *       PRIVATE METHODS      *
+ ******************************/
+
+bool SoundSourceLocalization::configure_hardware()
 {
     int err;
-    bool success = true;
-    int debug = 0;
-    snd_pcm_hw_params_malloc(&hw_params);         // Allocates the parameter container
-    snd_pcm_hw_params_any(pcm_handle, hw_params); // Init with full default configuration
-    snd_pcm_hw_params_set_access(
-        pcm_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED); // Access mode:
-    // SND_PCM_ACCESS_RW_INTERLEAVED (LRLR;
-    // standard) or
-    // SND_PCM_ACCESS_RW_NONINTERLEAVED (LLRR)
-    snd_pcm_hw_params_set_format(pcm_handle, hw_params,
-                                    mic_format); // Sets sample format (Signed 16-bit, Float, etc.).
-    snd_pcm_hw_params_set_channels(pcm_handle, hw_params, mic_channels);
-    snd_pcm_hw_params_set_rate_near(pcm_handle, hw_params, &mic_sample_rate, &dir);
-    snd_pcm_hw_params_set_period_size_near(pcm_handle, hw_params, &mic_period_size,
-                                            &dir);                                    // Sets interrupt interval size.
-    snd_pcm_hw_params_set_buffer_size_near(pcm_handle, hw_params, &mic_buffer_size); // Sets total ring buffer size.
-    err = snd_pcm_hw_params(pcm_handle, hw_params);                                  // Applies the configuration
-    if (err)
+
+    // Allocates the parameter container
+    err = snd_pcm_hw_params_malloc(&hw_params_);
+    if (err < 0)
     {
-        std::cout << "Error setting HW params: " << snd_strerror(err) << std::endl;
-        success = false;
-    }
-    return success;
-}
-
-int SoundSourceLocalization::print_peak_volume()
-{
-    std::cout << "Starting ALSA test program..." << std::endl;
-    std::cout << snd_pcm_format_width(mic_format) << std::endl;
-    snd_pcm_t *pcm_handle = nullptr; // Handle for the PCM audio stream of a sound device
-    snd_pcm_hw_params_t *hw_params = nullptr;
-    snd_ctl_t *ctl_handle = nullptr; // Handle for the control interface (card capabilities).
-    snd_pcm_stream_t stream;
-
-    // SND_PCM_STREAM_PLAYBACK (Output) or SND_PCM_STREAM_CAPTURE (Input)
-    if (snd_pcm_open(&pcm_handle, device_in_use, SND_PCM_STREAM_CAPTURE, 0))
-    {
-        std::cout << "Error opening PCM device " << device_in_use << std::endl;
-        return -1;
-    }
-    if (this->init_mic(pcm_handle, hw_params))
-    {
-        snd_pcm_prepare(pcm_handle); //  Prepares the PCM for IO after config or overrun
-        snd_pcm_start(pcm_handle);   // Explicitly starts the PCM
-
-
-        // Loop to visualize audio data
-        std::cout << "Capturing... (Make some noise!)" << std::endl;
-
-        for (int i = 0; i < 500; ++i)
-        {
-            snd_pcm_sframes_t rc = snd_pcm_readi(pcm_handle, buffer, mic_period_size);
-
-            if (rc == -EPIPE)
-            {
-                // Buffer full
-                // std::cout << "Overrun occurred." << std::endl; // Commented out to reduce spam
-                snd_pcm_prepare(pcm_handle);
-            }
-            else if (rc < 0)
-            {
-                std::cout << "Error: " << snd_strerror(rc) << std::endl;
-            }
-            else
-            {
-                // Calculate Peak Amplitude for Channel 1
-                // Data is interleaved: [Ch1, Ch2... ChN, Ch1, Ch2...]
-                float max_val = 0.0f;
-
-                for (int f = 0; f < rc; ++f)
-                {
-                    // Access Channel 1 (index 0) of frame f
-                    float sample = buffer[f * mic_channels + 0];
-
-                    if (std::abs(sample) > max_val)
-                    {
-                        max_val = std::abs(sample);
-                    }
-                }
-
-                // Draw VU Meter
-                // For float format, max value is 1.0
-                int bars = (int)(max_val * 50); // Scale to 50 chars width
-                if (bars > 50)
-                    bars = 50;
-
-                std::cout << "Ch1 Level: [";
-                for (int b = 0; b < bars; ++b)
-                    std::cout << "#";
-                for (int b = bars; b < 50; ++b)
-                    std::cout << " ";
-                std::cout << "] " << max_val << "\r" << std::flush;
-            }
-        }
-
-        std::cout << std::endl
-                    << "Capture finished." << std::endl;
-
-        // This is now handled by the destructor
-        // delete[] buffer; // Clean up memory
-
-        snd_pcm_drop(pcm_handle);  // stops stream; drops remaining data
-        snd_pcm_close(pcm_handle); // Close PCM, free resources
-    }
-    else
-    {
-        std::cout << "Failed to initialize microphone." << std::endl;
-        return -1;
+        std::cerr << "Cannot allocate hardware parameter structure: " << snd_strerror(err) << std::endl;
+        return false;
     }
 
-    std::cout << "ALSA test program finished successful." << std::endl;
-    return 0;
-}
+    // Initialize with full default configuration
+    err = snd_pcm_hw_params_any(pcm_handle_, hw_params_);
+    if (err < 0)
+    {
+        std::cerr << "Cannot initialize hardware parameter structure: " << snd_strerror(err) << std::endl;
+        return false;
+    }
 
+    // Set access mode to interleaved (LRLR...)
+    err = snd_pcm_hw_params_set_access(pcm_handle_, hw_params_, SND_PCM_ACCESS_RW_INTERLEAVED);
+    if (err < 0)
+    {
+        std::cerr << "Cannot set interleaved access mode: " << snd_strerror(err) << std::endl;
+        return false;
+    }
 
-int main(){
-    SoundSourceLocalization ssl;
-    return ssl.print_peak_volume();
+    // Set sample format (Signed 16-bit, Float, etc.)
+    err = snd_pcm_hw_params_set_format(pcm_handle_, hw_params_, config_.format);
+    if (err < 0)
+    {
+        std::cerr << "Cannot set sample format: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    // Set channel count
+    err = snd_pcm_hw_params_set_channels(pcm_handle_, hw_params_, config_.channels);
+    if (err < 0)
+    {
+        std::cerr << "Cannot set channel count: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    // Set sample rate
+    unsigned int actual_rate = config_.sample_rate;
+    // rounding direction of sample rate: -1 = accurate or first below, 0 = accurate, 1 = accurate or first above
+    int dir = 0;
+    err = snd_pcm_hw_params_set_rate_near(pcm_handle_, hw_params_, &actual_rate, &dir);
+    if (err < 0)
+    {
+        std::cerr << "Cannot set sample rate: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+    if (actual_rate != config_.sample_rate)
+    {
+        // TODO: if this happens, we should save the actual value and use it
+        std::cerr << "WARNING: Requested rate " << config_.sample_rate
+                  << " Hz, but got " << actual_rate << " Hz" << std::endl;
+    }
+
+    // Set period size (interrupt interval)
+    snd_pcm_uframes_t actual_period_size = config_.period_size;
+    err = snd_pcm_hw_params_set_period_size_near(pcm_handle_, hw_params_, &actual_period_size, &dir);
+    if (err < 0)
+    {
+        // TODO: if this happens, we should investigate it making it more safe
+        std::cerr << "Cannot set period size: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    // Set buffer size of the hardware
+    snd_pcm_uframes_t buffer_size = actual_period_size * 4; // multiple of period size, 2 .. 4 is common
+    err = snd_pcm_hw_params_set_buffer_size_near(pcm_handle_, hw_params_, &buffer_size);
+    if (err < 0)
+    {
+        // TODO: if this happens, we should investigate it making it more safe
+        std::cerr << "Cannot set buffer size: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    // Apply the hardware configuration
+    err = snd_pcm_hw_params(pcm_handle_, hw_params_);
+    if (err < 0)
+    {
+        std::cerr << "Cannot apply hardware parameters: " << snd_strerror(err) << std::endl;
+        return false;
+    }
+
+    return true;
 }
