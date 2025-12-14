@@ -1,7 +1,7 @@
 #include "alsa/asoundlib.h"
-#include <iostream>
-#include <iomanip>
 #include <cmath> // Add this at the top for std::abs
+#include <iomanip>
+#include <iostream>
 
 // hw: no conversion, less configurable
 // plughw: software conversion, more configurable, automatic resampling
@@ -31,18 +31,19 @@ int init_mic(snd_pcm_t* pcm_handle, snd_pcm_hw_params_t*& hw_params)
     // standard) or
     // SND_PCM_ACCESS_RW_NONINTERLEAVED (LLRR)
     snd_pcm_hw_params_set_format(pcm_handle, hw_params,
-                                 mic_format); // Sets sample format (Signed 16-bit, Float, etc.).
-                                 snd_pcm_hw_params_set_channels(pcm_handle, hw_params, mic_channels);
-                                 snd_pcm_hw_params_set_rate_near(pcm_handle, hw_params, &mic_sample_rate, &dir);
-                                 snd_pcm_hw_params_set_period_size_near(pcm_handle, hw_params, &mic_period_size,
-                                                                        &dir); // Sets interrupt interval size.
-                                 snd_pcm_hw_params_set_buffer_size_near(pcm_handle, hw_params, &mic_buffer_size); // Sets total ring buffer size.
-                                 err = snd_pcm_hw_params(pcm_handle, hw_params); // Applies the configuration
-                                 if (err) {
-                                     std::cout << "Error setting HW params: " << snd_strerror(err) << std::endl;
-                                     success = false;
-                                 }
-                                 return success;
+        mic_format); // Sets sample format (Signed 16-bit, Float, etc.).
+    snd_pcm_hw_params_set_channels(pcm_handle, hw_params, mic_channels);
+    snd_pcm_hw_params_set_rate_near(pcm_handle, hw_params, &mic_sample_rate, &dir);
+    snd_pcm_hw_params_set_period_size_near(pcm_handle, hw_params, &mic_period_size,
+        &dir); // Sets interrupt interval size.
+    snd_pcm_hw_params_set_buffer_size_near(pcm_handle, hw_params, &mic_buffer_size); // Sets total ring buffer size.
+    err = snd_pcm_hw_params(pcm_handle, hw_params); // Applies the configuration
+    if (err)
+    {
+        std::cout << "Error setting HW params: " << snd_strerror(err) << std::endl;
+        success = false;
+    }
+    return success;
 }
 
 int main()
@@ -55,11 +56,13 @@ int main()
     snd_pcm_stream_t stream;
 
     // SND_PCM_STREAM_PLAYBACK (Output) or SND_PCM_STREAM_CAPTURE (Input)
-    if (snd_pcm_open(&pcm_handle, device_in_use, SND_PCM_STREAM_CAPTURE, 0)) {
+    if (snd_pcm_open(&pcm_handle, device_in_use, SND_PCM_STREAM_CAPTURE, 0))
+    {
         std::cout << "Error opening PCM device " << device_in_use << std::endl;
         return -1;
     }
-    if (init_mic(pcm_handle, hw_params)) {
+    if (init_mic(pcm_handle, hw_params))
+    {
         snd_pcm_prepare(pcm_handle); //  Prepares the PCM for IO after config or overrun
         snd_pcm_start(pcm_handle); // Explicitly starts the PCM
 
@@ -69,29 +72,38 @@ int main()
         // Loop to visualize audio data
         std::cout << "Capturing... (Make some noise!)" << std::endl;
 
-        for(int i = 0; i < 500; ++i) {
+        for (int i = 0; i < 500; ++i)
+        {
             snd_pcm_sframes_t rc = snd_pcm_readi(pcm_handle, buffer, mic_period_size);
 
-            if (rc == -EPIPE) {
+            if (rc == -EPIPE)
+            {
                 // Buffer full
                 // std::cout << "Overrun occurred." << std::endl; // Commented out to reduce spam
                 snd_pcm_prepare(pcm_handle);
-            } else if (rc < 0) {
+            }
+            else if (rc < 0)
+            {
                 std::cout << "Error: " << snd_strerror(rc) << std::endl;
-            } else {
+            }
+            else
+            {
                 // Calculate Peak Amplitude for all 19 channels
                 // Data is interleaved: [Ch1, Ch2... Ch19, Ch1, Ch2...]
-                int32_t max_vals[mic_channels] = {0};
+                int32_t max_vals[mic_channels] = { 0 };
 
-                for(int f = 0; f < rc; ++f) {
-                    for(int ch = 0; ch < mic_channels; ++ch) {
+                for (int f = 0; f < rc; ++f)
+                {
+                    for (int ch = 0; ch < mic_channels; ++ch)
+                    {
                         int32_t sample = buffer[f * mic_channels + ch];
 
                         // Fix 24-bit sign extension in 32-bit integer
                         // Shift left 8 bits (to push sign bit to MSB), then arithmetic right shift
                         sample = (sample << 8) >> 8;
 
-                        if (std::abs(sample) > max_vals[ch]) {
+                        if (std::abs(sample) > max_vals[ch])
+                        {
                             max_vals[ch] = std::abs(sample);
                         }
                     }
@@ -105,36 +117,48 @@ int main()
                 const float max_24bit = 8388608.0f;
                 const float min_db = -60.0f; // Minimum dB to display
 
-                for(int ch = 0; ch < mic_channels; ++ch) {
+                for (int ch = 0; ch < mic_channels; ++ch)
+                {
                     float db;
-                    if (max_vals[ch] > 0) {
+                    if (max_vals[ch] > 0)
+                    {
                         db = 20.0f * log10f((float)max_vals[ch] / max_24bit);
-                    } else {
+                    }
+                    else
+                    {
                         db = min_db;
                     }
-                    if (db < min_db) db = min_db;
+                    if (db < min_db)
+                        db = min_db;
 
                     // Map dB range [min_db, 0] to [0, 40] bars
                     int bars = (int)(((db - min_db) / (-min_db)) * 40);
-                    if (bars < 0) bars = 0;
-                    if (bars > 40) bars = 40;
+                    if (bars < 0)
+                        bars = 0;
+                    if (bars > 40)
+                        bars = 40;
 
                     std::cout << "Ch" << (ch + 1 < 10 ? " " : "") << (ch + 1) << " [";
-                    for(int b = 0; b < bars; ++b) std::cout << "#";
-                    for(int b = bars; b < 40; ++b) std::cout << " ";
+                    for (int b = 0; b < bars; ++b)
+                        std::cout << "#";
+                    for (int b = bars; b < 40; ++b)
+                        std::cout << " ";
                     std::cout << "] " << std::fixed << std::setprecision(1) << std::setw(6) << db << " dB" << std::endl;
                 }
                 std::cout << std::flush;
             }
         }
 
-        std::cout << std::endl << "Capture finished." << std::endl;
+        std::cout << std::endl
+                  << "Capture finished." << std::endl;
 
         delete[] buffer; // Clean up memory
 
         snd_pcm_drop(pcm_handle); // stops stream; drops remaining data
         snd_pcm_close(pcm_handle); // Close PCM, free resources
-    } else {
+    }
+    else
+    {
         std::cout << "Failed to initialize microphone." << std::endl;
         return -1;
     }
