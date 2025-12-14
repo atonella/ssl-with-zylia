@@ -9,7 +9,7 @@ find_package(ALSA REQUIRED)
 
 # SSL Library
 add_library(ssl_lib STATIC
-    src/ssl/sound_source_localization.cpp
+    src/ssl/audio_capture.cpp
     src/ssl/utils.cpp
 )
 
