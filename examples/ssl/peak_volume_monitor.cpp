@@ -49,21 +49,21 @@ int main()
               << std::endl;
 
     // Create SSL object
-    AudioCapture ssl(MIC_CFG_NEEWER_NW_7000);
+    AudioCapture mic(MIC_CFG_NEEWER_NW_7000);
 
     // Initialize the audio device
-    if (!ssl.initialize())
+    if (!mic.initialize())
     {
         return 1;
     }
 
     std::cout << "Device initialized successfully" << std::endl;
     std::cout << "Configuration:" << std::endl;
-    std::cout << "  Device: " << ssl.get_config().device << std::endl;
-    std::cout << "  Channels: " << ssl.get_config().channels << std::endl;
-    std::cout << "  Sample Rate: " << ssl.get_config().sample_rate << " Hz" << std::endl;
-    std::cout << "  Period Size: " << ssl.get_config().period_size << " frames" << std::endl;
-    std::cout << "  Latency: " << (ssl.get_config().period_size * 1000.0 / ssl.get_config().sample_rate)
+    std::cout << "  Device: " << mic.get_config().device << std::endl;
+    std::cout << "  Channels: " << mic.get_config().channels << std::endl;
+    std::cout << "  Sample Rate: " << mic.get_config().sample_rate << " Hz" << std::endl;
+    std::cout << "  Period Size: " << mic.get_config().period_size << " frames" << std::endl;
+    std::cout << "  Latency: " << (mic.get_config().period_size * 1000.0 / mic.get_config().sample_rate)
               << " ms" << std::endl
               << std::endl;
 
@@ -72,15 +72,15 @@ int main()
               << std::endl;
 
     // Start audio capture
-    if (!ssl.start())
+    if (!mic.start())
     {
         return 1;
     }
 
-    const snd_pcm_format_t format = ssl.get_config().format;
+    const snd_pcm_format_t format = mic.get_config().format;
 
     // Process audio with a callback function
-    ssl.process_audio([format](const int32_t* data, size_t frames, int channels)
+    mic.process_audio([format](const int32_t* data, size_t frames, int channels)
         {
             // Calculate peak amplitudes for all channels
             auto peaks = calculate_peak_amplitudes(data, frames, channels, format);
